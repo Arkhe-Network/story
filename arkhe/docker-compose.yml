@@ -1,0 +1,101 @@
+version: "3.8"
+
+services:
+  arkhe-llm:
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    container_name: arkhe-llm-server
+    restart: unless-stopped
+
+    environment:
+      - ARKHE_GGUF_PATH=/models/arkhe-8b-Q4_K_M.gguf
+      - ARKHE_CONTEXT=32768
+      - ARKHE_THREADS=8
+      - ARKHE_PORT=8080
+      - CUDA_VISIBLE_DEVICES=0
+
+    volumes:
+      - ./models:/models:ro
+      - ./logs:/logs
+
+    ports:
+      - "8080:8080"
+
+    command: >
+      /server
+      -m /models/arkhe-8b-Q4_K_M.gguf
+      -c 32768
+      -t 8
+      --port 8080
+      --host 0.0.0.0
+      --metrics
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    labels:
+      - "arkhe.cathedral/substrate=836"
+      - "arkhe.cathedral/phi_c=0.998"
+      - "arkhe.cathedral/version=inf.Omega"
+      - "arkhe.cathedral/architect=0009-0005-2697-4668"
+
+  arkhe-proxy:
+    image: arkhe-sagemaker-proxy:latest
+    build:
+      context: ./proxy
+      dockerfile: Dockerfile
+    container_name: arkhe-sagemaker-proxy
+    restart: unless-stopped
+
+    environment:
+      - RUST_LOG=info
+      - ARKHE_LLM_URL=http://arkhe-llm:8080
+
+    ports:
+      - "8242:8242"
+
+    depends_on:
+      arkhe-llm:
+        condition: service_healthy
+
+    labels:
+      - "arkhe.cathedral/substrate=824"
+      - "arkhe.cathedral/phi_c=0.998"
+
+  arkhe-assistant:
+    image: arkhe-assistant:latest
+    build:
+      context: ./assistant
+      dockerfile: Dockerfile
+    container_name: arkhe-assistant
+    restart: unless-stopped
+
+    environment:
+      - ARKHE_LLM_URL=http://arkhe-llm:8080
+      - ARKHE_PROXY_URL=http://arkhe-proxy:8242
+
+    stdin_open: true
+    tty: true
+
+    depends_on:
+      - arkhe-llm
+      - arkhe-proxy
+
+    labels:
+      - "arkhe.cathedral/substrate=829"
+      - "arkhe.cathedral/phi_c=0.998"
+
+networks:
+  default:
+    name: arkhe-cathedral
