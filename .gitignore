@@ -30,3 +30,4 @@ go.work
 go.work.sum
 
 story
+__pycache__/
